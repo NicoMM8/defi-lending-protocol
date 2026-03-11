@@ -9,7 +9,8 @@ import {InterestRateModel} from "./InterestRateModel.sol";
 
 /**
  * @title LendingPool
- * @dev Core protocol contract. Manages deposits, borrows, repayments, and withdrawals.
+ * @dev Core protocol contract. Manages deposits, borrows, repayments, withdrawals,
+ *      and liquidations of subcollateralized positions.
  */
 contract LendingPool is ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -25,8 +26,8 @@ contract LendingPool is ReentrancyGuard {
         uint256 totalBorrows;
         uint256 borrowIndex;
         uint256 lastUpdateTimestamp;
-        uint256 ltv;              // Loan To Value (in WAD, e.g. 0.8e18 for 80%)
-        uint256 liquidationBonus; // e.g. 1.05e18 means 5% bonus
+        uint256 ltv;
+        uint256 liquidationBonus;
     }
 
     mapping(address => Market) public markets;
@@ -40,6 +41,7 @@ contract LendingPool is ReentrancyGuard {
     event Withdraw(address indexed user, address indexed token, uint256 amount);
     event Borrow(address indexed user, address indexed token, uint256 amount);
     event Repay(address indexed user, address indexed token, uint256 amount);
+    event Liquidate(address indexed liquidator, address indexed user, address collateralToken, address debtToken, uint256 debtRepaid, uint256 collateralLiquidated);
 
     constructor(address _oracle, address _interestModel) {
         oracle = PriceOracleWrapper(_oracle);
@@ -84,7 +86,6 @@ contract LendingPool is ReentrancyGuard {
         if (principal > 0) {
             uint256 oldIndex = accountBorrowIndex[user][token];
             uint256 newIndex = markets[token].borrowIndex;
-
             uint256 currentDebt = (principal * newIndex) / oldIndex;
             accountBorrowsPrincipal[user][token] = currentDebt;
         }
@@ -151,6 +152,48 @@ contract LendingPool is ReentrancyGuard {
         markets[token].totalLiquidity += repayAmount;
 
         emit Repay(msg.sender, token, repayAmount);
+    }
+
+    /**
+     * @dev Liquidate a subcollateralized position. The liquidator repays the
+     *      full debt and receives the equivalent collateral plus a bonus.
+     */
+    function liquidate(address user, address collateralToken, address debtToken) external nonReentrant {
+        updateState(collateralToken);
+        updateState(debtToken);
+        _updateUserBorrows(user, debtToken);
+
+        uint256 hf = getHealthFactor(user);
+        require(hf < WAD, "Position is healthy");
+
+        uint256 userDebt = accountBorrowsPrincipal[user][debtToken];
+        require(userDebt > 0, "No debt to liquidate");
+
+        uint256 debtToRepay = userDebt;
+
+        uint256 debtPrice = oracle.getTokenPrice(debtToken);
+        uint256 collateralPrice = oracle.getTokenPrice(collateralToken);
+
+        uint256 debtValue = (debtToRepay * debtPrice) / WAD;
+
+        uint256 bonus = markets[collateralToken].liquidationBonus;
+        uint256 collateralToLiquidate = (debtValue * WAD * bonus) / (collateralPrice * WAD);
+
+        uint256 userCollateral = accountCollateral[user][collateralToken];
+        require(userCollateral >= collateralToLiquidate, "Not enough collateral to liquidate");
+
+        IERC20(debtToken).safeTransferFrom(msg.sender, address(this), debtToRepay);
+
+        accountBorrowsPrincipal[user][debtToken] = 0;
+        markets[debtToken].totalBorrows -= debtToRepay;
+        markets[debtToken].totalLiquidity += debtToRepay;
+
+        accountCollateral[user][collateralToken] -= collateralToLiquidate;
+        markets[collateralToken].totalLiquidity -= collateralToLiquidate;
+
+        IERC20(collateralToken).safeTransfer(msg.sender, collateralToLiquidate);
+
+        emit Liquidate(msg.sender, user, collateralToken, debtToken, debtToRepay, collateralToLiquidate);
     }
 
     function getHealthFactor(address user) public view returns (uint256) {
