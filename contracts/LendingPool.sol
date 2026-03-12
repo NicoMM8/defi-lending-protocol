@@ -4,18 +4,21 @@ pragma solidity ^0.8.20;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {IERC3156FlashLender} from "@openzeppelin/contracts/interfaces/IERC3156FlashLender.sol";
+import {IERC3156FlashBorrower} from "@openzeppelin/contracts/interfaces/IERC3156FlashBorrower.sol";
 import {PriceOracleWrapper} from "./PriceOracleWrapper.sol";
 import {InterestRateModel} from "./InterestRateModel.sol";
 
 /**
  * @title LendingPool
- * @dev Core protocol contract. Manages deposits, borrows, repayments, withdrawals,
- *      and liquidations of subcollateralized positions.
+ * @dev Core protocol contract. Manages deposits, borrows, repayments,
+ *      withdrawals, liquidations, and ERC-3156 Flash Loans.
  */
-contract LendingPool is ReentrancyGuard {
+contract LendingPool is ReentrancyGuard, IERC3156FlashLender {
     using SafeERC20 for IERC20;
 
     uint256 public constant WAD = 1e18;
+    uint256 public constant FLASH_LOAN_FEE = 9; // 0.09% = 9 basis points
 
     PriceOracleWrapper public oracle;
     InterestRateModel public interestModel;
@@ -95,28 +98,20 @@ contract LendingPool is ReentrancyGuard {
     function deposit(address token, uint256 amount) external nonReentrant {
         require(markets[token].isListed, "Market not listed");
         updateState(token);
-
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
-
         accountCollateral[msg.sender][token] += amount;
         markets[token].totalLiquidity += amount;
-
         emit Deposit(msg.sender, token, amount);
     }
 
     function withdraw(address token, uint256 amount) external nonReentrant {
         updateState(token);
         _updateUserBorrows(msg.sender, token);
-
         require(accountCollateral[msg.sender][token] >= amount, "Not enough collateral");
-
         accountCollateral[msg.sender][token] -= amount;
         markets[token].totalLiquidity -= amount;
-
         require(getHealthFactor(msg.sender) >= WAD, "Health factor too low");
-
         IERC20(token).safeTransfer(msg.sender, amount);
-
         emit Withdraw(msg.sender, token, amount);
     }
 
@@ -124,40 +119,27 @@ contract LendingPool is ReentrancyGuard {
         require(markets[token].isListed, "Market not listed");
         updateState(token);
         _updateUserBorrows(msg.sender, token);
-
         require(markets[token].totalLiquidity >= amount, "Not enough liquidity");
-
         accountBorrowsPrincipal[msg.sender][token] += amount;
         markets[token].totalBorrows += amount;
         markets[token].totalLiquidity -= amount;
-
         require(getHealthFactor(msg.sender) >= WAD, "Health factor too low");
-
         IERC20(token).safeTransfer(msg.sender, amount);
-
         emit Borrow(msg.sender, token, amount);
     }
 
     function repay(address token, uint256 amount) external nonReentrant {
         updateState(token);
         _updateUserBorrows(msg.sender, token);
-
         uint256 currentDebt = accountBorrowsPrincipal[msg.sender][token];
         uint256 repayAmount = amount > currentDebt ? currentDebt : amount;
-
         IERC20(token).safeTransferFrom(msg.sender, address(this), repayAmount);
-
         accountBorrowsPrincipal[msg.sender][token] -= repayAmount;
         markets[token].totalBorrows -= repayAmount;
         markets[token].totalLiquidity += repayAmount;
-
         emit Repay(msg.sender, token, repayAmount);
     }
 
-    /**
-     * @dev Liquidate a subcollateralized position. The liquidator repays the
-     *      full debt and receives the equivalent collateral plus a bonus.
-     */
     function liquidate(address user, address collateralToken, address debtToken) external nonReentrant {
         updateState(collateralToken);
         updateState(debtToken);
@@ -173,9 +155,7 @@ contract LendingPool is ReentrancyGuard {
 
         uint256 debtPrice = oracle.getTokenPrice(debtToken);
         uint256 collateralPrice = oracle.getTokenPrice(collateralToken);
-
         uint256 debtValue = (debtToRepay * debtPrice) / WAD;
-
         uint256 bonus = markets[collateralToken].liquidationBonus;
         uint256 collateralToLiquidate = (debtValue * WAD * bonus) / (collateralPrice * WAD);
 
@@ -223,5 +203,41 @@ contract LendingPool is ReentrancyGuard {
 
         if (totalDebtValue == 0) return type(uint256).max;
         return (totalCollateralValueLimit * WAD) / totalDebtValue;
+    }
+
+    // --- ERC-3156 Flash Loan Implementation ---
+    bytes32 private constant CALLBACK_SUCCESS = keccak256("ERC3156FlashBorrower.onFlashLoan");
+
+    function maxFlashLoan(address token) external view override returns (uint256) {
+        return markets[token].isListed ? IERC20(token).balanceOf(address(this)) : 0;
+    }
+
+    function flashFee(address token, uint256 amount) public view override returns (uint256) {
+        require(markets[token].isListed, "Market not listed");
+        return (amount * FLASH_LOAN_FEE) / 10000;
+    }
+
+    function flashLoan(
+        IERC3156FlashBorrower receiver,
+        address token,
+        uint256 amount,
+        bytes calldata data
+    ) external override nonReentrant returns (bool) {
+        require(amount <= IERC20(token).balanceOf(address(this)), "Not enough liquidity");
+
+        uint256 fee = flashFee(token, amount);
+
+        IERC20(token).safeTransfer(address(receiver), amount);
+
+        require(
+            receiver.onFlashLoan(msg.sender, token, amount, fee, data) == CALLBACK_SUCCESS,
+            "FlashLender: Callback failed"
+        );
+
+        IERC20(token).safeTransferFrom(address(receiver), address(this), amount + fee);
+
+        markets[token].totalLiquidity += fee;
+
+        return true;
     }
 }
