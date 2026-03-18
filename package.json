@@ -1,14 +1,16 @@
 {
-  "name": "defi-lending-protocol",
-  "version": "0.1.0",
-  "description": "DeFi Lending Protocol with Flash Loans and Liquidations",
+  "name": "liquidaciones",
+  "version": "1.0.0",
+  "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "npx hardhat test"
+    "test": "npx hardhat test",
+    "simulate:arb": "npx hardhat run scripts/arbitrageSimulation.js",
+    "simulate:liq": "npx hardhat run scripts/liquidationSimulation.js"
   },
-  "keywords": ["defi", "solidity", "lending", "flash-loans", "liquidation"],
+  "keywords": [],
   "author": "",
-  "license": "MIT",
+  "license": "ISC",
   "type": "module",
   "devDependencies": {
     "@chainlink/contracts": "^1.5.0",
