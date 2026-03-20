@@ -30,7 +30,10 @@ The protocol consists of three core components:
 | **Reserve Factor (10%)** | Protocol retains 10% of accrued interest as reserves. Remaining 90% flows to depositors via the supply rate. |
 | **Supply APY** | `supplyRate = borrowRate × utilization × (1 − reserveFactor)` — depositors earn yield automatically. |
 | **Flash Loans (ERC-3156)** | Uncollateralized loans with a 0.09% fee, repaid atomically within the same transaction. |
-| **Emergency Controls** | `Ownable` for admin functions, `Pausable` for circuit-breaking all user operations. |
+| **LP Tokens (LTokens)** | **aToken-style interest-bearing tokens** minted on deposit and burned on withdrawal. |
+| **On-chain Governance** | Full governance system (Governor + Timelock) for protocol parameter updates. |
+| **Uniswap Arbitrage** | Real-world arbitrage logic against Uniswap V2/Sushiswap routers for mainnet forks. |
+| **Emergency Controls** | `Ownable` for admin functions, `Pausable` for circuit-breaking all operations. |
 | **Reentrancy Protection** | All state-changing functions protected via OpenZeppelin's `ReentrancyGuard`. |
 
 ---
@@ -40,16 +43,22 @@ The protocol consists of three core components:
 ```
 contracts/
 ├── LendingPool.sol              Core protocol: deposit, borrow, repay, withdraw, liquidate, flashLoan
+├── LToken.sol                   **LP Token (ERC-20)** implementation for interest-bearing deposits
+├── ProtocolGovernor.sol         **On-chain Governance** (Governor + Timelock extension)
+├── GovernanceToken.sol          **PGT Token** with voting capabilities
+├── UniswapArbitrageBot.sol      **Real arbitrage bot** vs. Uniswap V2 / Sushiswap routers
 ├── InterestRateModel.sol        Kinked (two-slope) interest rate mathematics
 ├── PriceOracleWrapper.sol       Chainlink integration with staleness protection
-├── ArbitrageBot.sol             Flash loan receiver — arbitrage demo
+├── ArbitrageBot.sol             Mock flash loan receiver (educational demo)
 ├── MaliciousFlashBorrower.sol   Security test: verifies unpaid flash loans revert
 ├── MockAggregator.sol           Test helper: simulates Chainlink price feeds
 └── MockERC20.sol                Test helper: mintable ERC-20 token
 
 scripts/
 ├── deploy.js                    Full protocol deployment → deployed-addresses.json
-├── arbitrageSimulation.js       End-to-end flash loan arbitrage demo
+├── arbitrageSimulation.js       Basic flash loan arbitrage demo
+├── uniswapArbitrageScript.js    **Real-world arbitrage** against Uniswap / Sushiswap routers
+├── governanceDemo.js            **On-chain governance** lifecycle (Propose → Vote → Execute)
 ├── liquidationSimulation.js     Liquidation flow with Close Factor demo
 └── liquidationBot.js            Off-chain keeper bot (Node.js)
 
