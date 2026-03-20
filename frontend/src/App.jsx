@@ -59,7 +59,10 @@ function App() {
   };
 
   const executeAction = async (amount) => {
-    if (!signer || !pool) return;
+    if (!signer || !pool) {
+      alert("Please connect your wallet first!");
+      return;
+    }
     setLoading(true);
     try {
       const amt = ethers.parseUnits(amount, 18);
@@ -88,7 +91,7 @@ function App() {
     <div className="App">
       <nav className="sidebar glass">
         <div className="logo-container">
-          <img src="/logo.png" className="logo-img" alt="logo" />
+          <img src="./logo.png" className="logo-img" alt="logo" />
           <span className="brand-name">Zenith</span>
         </div>
         <ul className="nav-links">
