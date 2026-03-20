@@ -12,7 +12,10 @@ function App() {
   const [signer, setSigner] = useState(null);
   const [pool, setPool] = useState(null);
   const [stats, setStats] = useState({ tvl: '$1.4M', totalBorrows: '$620K', healthFactor: 'Safe' });
-  const [markets, setMarkets] = useState([]);
+  const [markets, setMarkets] = useState([
+    { name: 'USDC', address: addresses.USDC, ltv: '80%', apr: '4.2%', balance: '0' },
+    { name: 'WETH', address: addresses.WETH, ltv: '70%', apr: '2.8%', balance: '0' }
+  ]);
   const [loading, setLoading] = useState(false);
   const [currentView, setCurrentView] = useState('dashboard');
   
@@ -44,11 +47,9 @@ function App() {
   };
 
   const loadData = async () => {
-    const m = [
-      { name: 'USDC', address: addresses.USDC, ltv: '80%', apr: '4.2%', balance: '0' },
-      { name: 'WETH', address: addresses.WETH, ltv: '70%', apr: '2.8%', balance: '0' }
-    ];
-    setMarkets(m);
+    // In a real app, we'd fetch actual on-chain balances here.
+    // Keeping the current markets structure but potentially updated.
+    setMarkets(prev => [...prev]);
   };
 
   const openAction = (market, action) => {
