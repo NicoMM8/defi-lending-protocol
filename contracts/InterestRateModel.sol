@@ -3,7 +3,6 @@ pragma solidity ^0.8.20;
 
 /**
  * @title InterestRateModel
- * @author DeFi Lending Protocol
  * @notice Implements a kinked (two-slope) interest rate model inspired by Aave/Compound.
  * @dev All rates are annualised in WAD (1e18 = 100%). A per-second rate is derived
  *      by dividing by `SECONDS_PER_YEAR`.

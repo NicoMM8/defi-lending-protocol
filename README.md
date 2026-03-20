@@ -12,36 +12,10 @@ Inspired by the architecture of [Aave](https://aave.com) and [Compound](https://
 
 ## Architecture
 
-```mermaid
-graph TD
-    subgraph Protocol Core
-        LP["LendingPool<br/><i>deposit · borrow · repay<br/>withdraw · liquidate · flashLoan</i>"]
-        IRM["InterestRateModel<br/><i>kinked two-slope curve</i>"]
-        ORC["PriceOracleWrapper<br/><i>Chainlink + staleness guard</i>"]
-    end
-
-    subgraph OpenZeppelin
-        OZ["Ownable · Pausable<br/>ReentrancyGuard · SafeERC20<br/>ERC-3156 Interfaces"]
-    end
-
-    subgraph External
-        CL["Chainlink<br/>Price Feeds"]
-    end
-
-    subgraph Actors
-        U["👤 Users"]
-        LQ["🤖 Liquidation Keeper"]
-        AB["⚡ ArbitrageBot<br/><i>Flash Loan Receiver</i>"]
-    end
-
-    U -->|deposit / borrow / repay / withdraw| LP
-    LQ -->|liquidate underwater positions| LP
-    AB -->|flashLoan| LP
-    LP --> IRM
-    LP --> ORC
-    ORC --> CL
-    LP -.->|inherits| OZ
-```
+The protocol consists of three core components:
+- **LendingPool**: Manages deposits, borrows, repayments, and liquidations.
+- **InterestRateModel**: Multi-slope kinked model for dynamic rates.
+- **PriceOracleWrapper**: Chainlink integration with staleness protection.
 
 ---
 
@@ -116,25 +90,9 @@ npm run simulate:liq    # Liquidation with Close Factor
 
 The protocol uses a **kinked (two-slope) model** inspired by Aave and Compound. Borrowing rates remain low under normal utilization but increase sharply when the pool approaches full utilization, incentivizing repayments.
 
-$$
-R_{borrow} = \begin{cases}
-R_{base} + \dfrac{U}{U_{optimal}} \times S_1 & \text{if } U \leq U_{optimal} \\[8pt]
-R_{base} + S_1 + \dfrac{U - U_{optimal}}{1 - U_{optimal}} \times S_2 & \text{if } U > U_{optimal}
-\end{cases}
-$$
+The protocol uses a two-slope model where borrow rates stay low until 80% utilization (the kink), then increase sharply to incentivize liquidity.
 
-| Parameter | Value | Description |
-|---|---|---|
-| $U_{optimal}$ | 80% | Target utilization rate (kink point) |
-| $R_{base}$ | 2% | Minimum annual borrow rate |
-| $S_1$ | 4% | Slope below the kink |
-| $S_2$ | 75% | Slope above the kink (steep) |
-
-**Supply Rate** is derived as:
-
-$$R_{supply} = R_{borrow} \times U \times (1 - RF)$$
-
-where $RF = 10\%$ is the reserve factor.
+Supply rates are calculated based on the total interest paid by borrowers, minus a 10% reserve factor.
 
 ---
 
@@ -149,28 +107,18 @@ where $RF = 10\%$ is the reserve factor.
 | **Close Factor** | 50% cap per liquidation call prevents flash-liquidation attacks |
 | **WAD Arithmetic** | All calculations use 18-decimal fixed-point math (1e18) to avoid precision loss |
 
-> **Disclaimer**: This protocol is built for educational and portfolio purposes. It has not been professionally audited. Do not use in production without a thorough security review.
+> **Note**: This is an educational project and has not been audited. Use at your own risk.
 
 ---
 
-## Test Coverage
+## Common Issues & Solutions
 
-```
-DeFi Lending Protocol
-  Setup & Access Control ────────── 5 tests
-  Pausable ──────────────────────── 2 tests
-  Oracle Staleness ──────────────── 2 tests
-  Deposits ──────────────────────── 2 tests
-  Borrow ────────────────────────── 3 tests
-  Repay ─────────────────────────── 2 tests
-  Withdraw ──────────────────────── 2 tests
-  Interest Accrual & Supply Rate ── 3 tests
-  Liquidation (Close Factor) ────── 2 tests
-  Flash Loans ───────────────────── 3 tests
-  Health Factor Edge Cases ──────── 2 tests
-
-  28 passing (2s)
-```
+| Issue                               | Solution                                                                                                                                                                                             |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Transaction Reverts: "Health factor too low"** | You are attempting to withdraw collateral or borrow debt that would put your position underwater (HF < 1.0). Deposit more collateral or repay some debt first.                                       |
+| **Transaction Reverts: "Stale price data"** | The Chainlink oracle hasn't updated within the `maxStaleness` window (default 1h). If testing locally, ensure you are using a recent mainnet fork or update the price feed manually via `MockAggregator`. |
+| **Flash Loan Fails: "Arbitrage failed"** | The flash loan receiver (bot) was unable to repay the loan + fee. Ensure the bot contract is funded with enough tokens to cover the fee if the trade profit is insufficient.                        |
+| **Price Oracle: "Invalid price"**     | The oracle returned a zero or negative price. Check the feed address and ensure the asset is correctly listed.                                                                                       |
 
 ---
 

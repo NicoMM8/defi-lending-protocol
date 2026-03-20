@@ -6,6 +6,11 @@ async function main() {
   // Get deployed contracts (In a real scenario, you'd load addresses from a config or env)
   // For this local script, we assume the addresses are passed or hardcoded
   const LENDING_POOL_ADDRESS = process.env.LENDING_POOL_ADDRESS;
+  if (!LENDING_POOL_ADDRESS) {
+    console.error("Error: LENDING_POOL_ADDRESS not set in environment.");
+    // TODO: Load from deployed-addresses.json as fallback
+    process.exit(1);
+  }
   const LENDING_POOL_ABI = [
     "function getHealthFactor(address) view returns (uint256)",
     "function liquidate(address,address,address)",

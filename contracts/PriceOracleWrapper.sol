@@ -6,7 +6,6 @@ import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interf
 
 /**
  * @title PriceOracleWrapper
- * @author DeFi Lending Protocol
  * @notice Secure wrapper over Chainlink Price Feeds with staleness protection.
  * @dev Normalises all prices to 18-decimal (WAD) precision.
  */
@@ -28,6 +27,7 @@ contract PriceOracleWrapper is Ownable {
      * @param feed  Address of the Chainlink AggregatorV3 (e.g. TOKEN/USD).
      */
     function setPriceFeed(address token, address feed) external onlyOwner {
+        require(token != address(0), "Invalid token address");
         require(feed != address(0), "Invalid feed address");
         priceFeeds[token] = feed;
         emit PriceFeedSet(token, feed);

@@ -8,11 +8,8 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 /**
  * @title ArbitrageBot
- * @author DeFi Lending Protocol
- * @notice Example ERC-3156 Flash Loan receiver that simulates a cross-DEX
- *         arbitrage trade. In production, the `onFlashLoan` callback would
- *         interact with Uniswap/Sushiswap routers to capture a price
- *         discrepancy.
+ * @notice Example flash loan receiver for arbitrage trades.
+ *         Demonstrates interacting with the LendingPool via ERC-3156.
  */
 contract ArbitrageBot is IERC3156FlashBorrower {
     using SafeERC20 for IERC20;
@@ -34,23 +31,27 @@ contract ArbitrageBot is IERC3156FlashBorrower {
         owner = msg.sender;
     }
 
+    // State used to pass minProfit to the callback
+    uint256 private _minProfit;
+
     /**
      * @notice Initiate a flash loan for arbitrage.
-     * @param token  Token to borrow.
-     * @param amount Amount to borrow.
+     * @param token      Token to borrow.
+     * @param amount     Amount to borrow.
+     * @param minProfit  Minimum required profit (after fees) to not revert.
      */
-    function executeArbitrage(address token, uint256 amount) external {
+    function executeArbitrage(address token, uint256 amount, uint256 minProfit) external {
         uint256 maxBorrow = lender.maxFlashLoan(token);
         require(maxBorrow >= amount, "Not enough liquidity in pool");
 
+        _minProfit = minProfit;
         bytes memory data = abi.encode(msg.sender);
         lender.flashLoan(this, token, amount, data);
     }
 
     /**
      * @notice ERC-3156 callback — executes the arbitrage logic.
-     * @dev In this demo, the owner pre-funds the contract to simulate profit.
-     *      In production, you would call DEX routers here.
+     * @dev Simulated arbitrage for testing purposes.
      */
     function onFlashLoan(
         address initiator,
@@ -62,9 +63,8 @@ contract ArbitrageBot is IERC3156FlashBorrower {
         require(msg.sender == address(lender), "Untrusted lender");
         require(initiator == address(this), "Untrusted initiator");
 
-        // ── Simulated Arbitrage ──
-        // In reality: buy cheap on DEX-A, sell high on DEX-B.
-        // Here we pull pre-funded "profit" from the owner.
+        // --- Simulated Arbitrage ---
+        // Pull "profit" from owner to simulate a successful trade.
         uint256 simulatedProfit = fee + 10e18;
         IERC20(token).safeTransferFrom(owner, address(this), simulatedProfit);
 
@@ -72,9 +72,12 @@ contract ArbitrageBot is IERC3156FlashBorrower {
         uint256 amountToRepay = amount + fee;
         require(currentBalance >= amountToRepay, "Arbitrage failed, not enough to repay");
 
+        uint256 profit = currentBalance - amountToRepay;
+        require(profit >= _minProfit, "Profit below minProfit check");
+
         IERC20(token).forceApprove(address(lender), amountToRepay);
 
-        emit ArbitrageExecuted(token, amount, currentBalance - amountToRepay);
+        emit ArbitrageExecuted(token, amount, profit);
 
         return keccak256("ERC3156FlashBorrower.onFlashLoan");
     }
