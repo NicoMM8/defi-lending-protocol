@@ -62,7 +62,7 @@ describe("Protocol Security & Limits", function () {
       const usdcAgg = await MockAggregator.deploy(1_0000_0000n);
       await oracle.setPriceFeed(await usdc.getAddress(), await usdcAgg.getAddress());
 
-      await lendingPool.addMarket(await usdc.getAddress(), 0, ethers.parseUnits("1.05", 18), "L", "L");
+      await lendingPool.addMarket(await usdc.getAddress(), ethers.parseUnits("0.8", 18), ethers.parseUnits("1.05", 18), "L", "L");
       
       const dep = ethers.parseUnits("1000", 18);
       await usdc.mint(owner.address, dep);
