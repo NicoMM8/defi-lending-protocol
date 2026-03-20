@@ -11,7 +11,9 @@ function App() {
   const [provider, setProvider] = useState(null);
   const [signer, setSigner] = useState(null);
   const [pool, setPool] = useState(null);
-  const [stats, setStats] = useState({ tvl: '$1.4M', totalBorrows: '$620K', healthFactor: 'Safe' });
+  
+  // FIXME: Need to figure out a better way to handle these stats on mobile
+  const [stats, setStats] = useState({ tvl: '...', totalBorrows: '...', healthFactor: '...' });
   const [markets, setMarkets] = useState([
     { name: 'USDC', address: addresses.USDC, ltv: '80%', apr: '4.2%', balance: '0' },
     { name: 'WETH', address: addresses.WETH, ltv: '70%', apr: '2.8%', balance: '0' }
@@ -30,13 +32,29 @@ function App() {
   ];
 
   useEffect(() => {
+    let p, lp;
     if (window.ethereum) {
-      const p = new ethers.BrowserProvider(window.ethereum);
+      p = new ethers.BrowserProvider(window.ethereum);
       setProvider(p);
-      const lp = new ethers.Contract(addresses.LendingPool, LendingPoolABI, p);
+      lp = new ethers.Contract(addresses.LendingPool, LendingPoolABI, p);
+      setPool(lp);
+    } else {
+      // Fallback for viewing stats without a wallet
+      p = new ethers.JsonRpcProvider("http://localhost:8545");
+      setProvider(p);
+      lp = new ethers.Contract(addresses.LendingPool, LendingPoolABI, p);
       setPool(lp);
     }
   }, []);
+
+  useEffect(() => {
+    if (provider && pool) {
+      loadData();
+      
+      const interval = setInterval(loadData, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [provider, pool, account]);
 
   const connectWallet = async () => {
     if (!provider) return;
@@ -47,9 +65,66 @@ function App() {
   };
 
   const loadData = async () => {
-    // In a real app, we'd fetch actual on-chain balances here.
-    // Keeping the current markets structure but potentially updated.
-    setMarkets(prev => [...prev]);
+    if (!provider || !pool) return;
+    
+    setLoading(true);
+    try {
+      // 1. Fetch market data and prices
+      const oracleAddr = await pool.oracle();
+      const oracle = new ethers.Contract(oracleAddr, ["function getTokenPrice(address) view returns (uint256)"], provider);
+      
+      const updatedMarkets = await Promise.all(
+        markets.map(async (m) => {
+          const marketData = await pool.markets(m.address);
+          const price = await oracle.getTokenPrice(m.address);
+          const supplyRate = await pool.getSupplyRate(m.address);
+          
+          // Convert rates to percentages (WAD math)
+          const apr = (Number(supplyRate) / 1e16).toFixed(2) + '%';
+          const ltv = (Number(marketData.ltv) / 1e16).toFixed(0) + '%';
+          
+          return { 
+            ...m, 
+            ltv, 
+            apr, 
+            price: Number(price) / 1e18,
+            liquidity: Number(marketData.totalLiquidity) / 1e18,
+            borrows: Number(marketData.totalBorrows) / 1e18
+          };
+        })
+      );
+      setMarkets(updatedMarkets);
+
+      // 2. Calculate Dashboard Stats (TVL, Borrows)
+      let totalTVL = 0;
+      let totalBorrowsValue = 0;
+      
+      updatedMarkets.forEach(m => {
+        totalTVL += (m.liquidity + m.borrows) * m.price;
+        totalBorrowsValue += m.borrows * m.price;
+      });
+
+      // 3. Health Factor for connected user
+      let hf = 'Safe';
+      if (account) {
+        const hfValue = await pool.getHealthFactor(account);
+        if (hfValue > 1e20) {
+          hf = 'Safe';
+        } else {
+          hf = (Number(hfValue) / 1e18).toFixed(2);
+        }
+      }
+
+      setStats({
+        tvl: '$' + (totalTVL / 1e6).toFixed(1) + 'M', // Assuming USDC is 6 decimals in price or normalized
+        totalBorrows: '$' + (totalBorrowsValue / 1e3).toFixed(0) + 'K',
+        healthFactor: hf
+      });
+
+    } catch (err) {
+      console.error("Error fetching data:", err);
+    }
+    setLoading(false);
   };
 
   const openAction = (market, action) => {

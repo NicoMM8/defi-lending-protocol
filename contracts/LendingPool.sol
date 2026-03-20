@@ -29,38 +29,26 @@ import {LToken} from "./LToken.sol";
 contract LendingPool is ReentrancyGuard, Ownable, Pausable, IERC3156FlashLender {
     using SafeERC20 for IERC20;
 
-    // --- Constants ---
-
-    /// @notice 1e18 — standard WAD precision unit.
+    // Protocol Constants
     uint256 public constant WAD = 1e18;
-
-    /// @notice Flash Loan fee in basis points (9 = 0.09%).
-    uint256 public constant FLASH_LOAN_FEE = 9;
-
-    /// @notice Close Factor — max fraction of debt repayable per liquidation call (50%).
-    uint256 public constant CLOSE_FACTOR = 5e17;
-
-    /// @notice Reserve factor — fraction of interest retained as protocol reserves (10%).
-    uint256 public constant RESERVE_FACTOR = 1e17;
-
-    /// @notice Maximum number of listed markets (prevents gas exhaustion in HF loops).
+    uint256 public constant FLASH_LOAN_FEE = 9; // 0.09%
+    uint256 public constant CLOSE_FACTOR = 5e17; // 50%
+    uint256 public constant RESERVE_FACTOR = 1e17; // 10%
     uint256 public constant MAX_MARKETS = 25;
-
-    // --- State ---
 
     PriceOracleWrapper public oracle;
     InterestRateModel public interestModel;
 
     struct Market {
         bool isListed;
-        uint256 totalLiquidity;   // Underlying tokens available to borrow
-        uint256 totalBorrows;     // Outstanding borrows (grows with interest)
-        uint256 totalReserves;    // Protocol reserves (10% of interest)
-        uint256 borrowIndex;      // Cumulative borrow interest index (starts at WAD)
+        uint256 totalLiquidity;
+        uint256 totalBorrows;
+        uint256 totalReserves;
+        uint256 borrowIndex; // Starts at 1e18
         uint256 lastUpdateTimestamp;
-        uint256 ltv;              // Loan-to-Value in WAD (e.g. 0.75e18 = 75%)
-        uint256 liquidationBonus; // Bonus in WAD (e.g. 1.08e18 = 8% bonus)
-        address lToken;           // Address of the market's LToken contract
+        uint256 ltv;
+        uint256 liquidationBonus;
+        address lToken;
     }
 
     mapping(address => Market) public markets;
@@ -70,8 +58,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable, IERC3156FlashLender 
 
     address[] public allMarkets;
 
-    // --- Events ---
-
+    // Events
     event MarketAdded(address indexed token, address indexed lToken, uint256 ltv, uint256 liquidationBonus);
     event Deposit(address indexed user, address indexed token, uint256 underlyingAmount, uint256 lTokensMinted);
     event Withdraw(address indexed user, address indexed token, uint256 underlyingAmount, uint256 lTokensBurned);
@@ -89,12 +76,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable, IERC3156FlashLender 
     event FlashLoanExecuted(address indexed receiver, address indexed token, uint256 amount, uint256 fee);
     event MarketConfigurationUpdated(address indexed token, uint256 ltv, uint256 liquidationBonus);
 
-    // --- Constructor ---
-
-    /**
-     * @param _oracle        Address of the PriceOracleWrapper contract.
-     * @param _interestModel Address of the InterestRateModel contract.
-     */
+    // Initialize with dependencies
     constructor(address _oracle, address _interestModel) Ownable(msg.sender) {
         oracle = PriceOracleWrapper(_oracle);
         interestModel = InterestRateModel(_interestModel);
@@ -169,7 +151,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable, IERC3156FlashLender 
     /// @notice Unpause all operations.
     function unpause() external onlyOwner { _unpause(); }
 
-    // --- Interest accrual ---
+    // Interest calculation and state updates
 
     /**
      * @notice Accrue interest for a market, updating borrowIndex, totalBorrows, and reserves.
@@ -208,7 +190,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable, IERC3156FlashLender 
         accountBorrowIndex[user][token] = markets[token].borrowIndex;
     }
 
-    // --- Exchange rate math ---
+    // Math for LToken exchange rates
 
     /**
      * @notice Compute the current exchange rate: underlying per LToken (in WAD).
@@ -241,7 +223,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable, IERC3156FlashLender 
         return (lBalance * exchangeRate(token)) / WAD;
     }
 
-    // --- User actions ---
+    // Main User Actions (Deposit, Withdraw, Borrow, Repay)
 
     /**
      * @notice Deposit underlying tokens and receive LTokens in return.
@@ -342,7 +324,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable, IERC3156FlashLender 
         emit Repay(msg.sender, token, repayAmount);
     }
 
-    // --- Liquidations ---
+    // Risk management and liquidations
 
     /**
      * @notice Liquidate a sub-collateralised position.
@@ -404,7 +386,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable, IERC3156FlashLender 
         emit Liquidate(msg.sender, user, collateralToken, debtToken, debtToRepay, collateralToSeize);
     }
 
-    // --- View functions ---
+    // Protocol view functions
 
     /**
      * @notice Compute the Health Factor for a user across all markets.
@@ -463,7 +445,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable, IERC3156FlashLender 
         return markets[token].lToken;
     }
 
-    // --- Flash Loans ---
+    // ERC-3156 Flash Loans
 
     bytes32 private constant CALLBACK_SUCCESS = keccak256("ERC3156FlashBorrower.onFlashLoan");
 
